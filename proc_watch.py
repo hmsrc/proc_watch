@@ -46,6 +46,7 @@ max_mem         = configParser.getfloat("limits", "max_mem") # memory limits
 run_dir     = configParser.get("paths", "run_dir")
 log_dir     = configParser.get("paths", "log_dir")
 histfile    = run_dir+"/proc_watch.history"     # track multiple violations
+ignorefile  = run_dir+"/proc_watch.ignore"      # track ignored programs
 logfile     = log_dir+"/proc_watch.log"         # actions logged to this file
 
 exclude_comms = tuple(configParser.get("limits","commands").split("\n"))
@@ -119,13 +120,13 @@ def gen_procs():
       d_ps[pid] = proc
   return d_ps
 
-def write_history(proc_dict):
-  hist_fh      = open(histfile, 'wb')
+def write_history(proc_dict,file_path):
+  hist_fh      = open(file_path, 'wb')
   pickle.dump(proc_dict, hist_fh)
   hist_fh.close()
 
-def read_history():
-  hist_fh      = open(histfile, 'rb')
+def read_history(file_path):
+  hist_fh      = open(file_path, 'rb')
   proc_dict = pickle.load(hist_fh)
   hist_fh.close()
   return proc_dict
@@ -140,12 +141,12 @@ if not os.path.exists(run_dir):
 
 if os.path.isfile(histfile):
   firstrun = False
-  hist_dict = read_history()
+  hist_dict = read_history(histfile)
 else:
   firstrun = True
 
 process_dict = gen_procs()
-write_history(process_dict)
+write_history(process_dict,histfile)
 
 if not firstrun:
   kill_procs(hist_dict, process_dict)
