@@ -106,7 +106,7 @@ def kill_log(l_proc):
 
 
 def gen_procs():
-  d_ps = {} 
+  d_ps,d_ignore = {}, {}
   p = subprocess.Popen(ps_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   psout, pserr = p.communicate()
   ps_lines   = [ line for line in psout.split('\n') if line ]
@@ -116,9 +116,12 @@ def gen_procs():
     uid  = int(proc[1])
     cpu  = float(proc[2])
     mem  = float(proc[3])
+    comm = str(" ".join(proc[4:]))
+    if ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ) and comm.startswith(exclude_comms):
+      d_ignore[pid] = proc
     if ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ) :
       d_ps[pid] = proc
-  return d_ps
+  return d_ps, d_ignore
 
 def write_history(proc_dict,file_path):
   hist_fh      = open(file_path, 'wb')
@@ -145,8 +148,9 @@ if os.path.isfile(histfile):
 else:
   firstrun = True
 
-process_dict = gen_procs()
+process_dict,ignore_dict = gen_procs()
 write_history(process_dict,histfile)
+write_history(process_dict,ignorefile)
 
 if not firstrun:
   kill_procs(hist_dict, process_dict)
