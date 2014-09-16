@@ -54,6 +54,7 @@ exclude_comms = tuple(configParser.get("limits","commands").split("\n"))
 def send_email(name, account, hostname, date, command, pid, mem, cpu):
   mail_from = configParser.get("mail", "from")
   mail_reply_to = configParser.get("mail", "reply_to")
+  mail_smtp = configParser.get("mail", "smtp_server")
   mail_to   = account
 
   config_msg  = configParser.get("mail", "message")
@@ -70,7 +71,7 @@ def send_email(name, account, hostname, date, command, pid, mem, cpu):
   mime_message['To']         = mail_to
   mime_message['Reply-to']   = mail_reply_to
 
-  s = smtplib.SMTP('smtp.example.com')
+  s = smtplib.SMTP(mail_smtp)
   s.sendmail(mail_from, mail_to, mime_message.as_string())
   s.quit()
 
