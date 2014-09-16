@@ -120,7 +120,7 @@ def gen_procs():
     comm = str(" ".join(proc[4:]))
     if ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ) and comm.startswith(exclude_comms):
       d_ignore[pid] = proc
-    if ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ) :
+    elif ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ):
       d_ps[pid] = proc
   return d_ps, d_ignore
 
@@ -151,7 +151,7 @@ else:
 
 process_dict,ignore_dict = gen_procs()
 write_history(process_dict,histfile)
-write_history(process_dict,ignorefile)
+write_history(ignore_dict,ignorefile)
 
 if not firstrun:
   kill_procs(hist_dict, process_dict)
