@@ -30,7 +30,8 @@ from email.mime.text import MIMEText
 from string import Template
 
 # location of config file
-config_file = "/usr/local/etc/proc_watch.ini"
+#config_file = "/usr/local/etc/proc_watch.ini"
+config_file = "./proc_watch.ini"
 
 # read in the config file
 configParser = ConfigParser.RawConfigParser()
@@ -49,7 +50,7 @@ histfile    = run_dir+"/proc_watch.history"     # track multiple violations
 ignorefile  = run_dir+"/proc_watch.ignore"      # track ignored programs
 logfile     = log_dir+"/proc_watch.log"         # actions logged to this file
 
-exclude_comms = tuple(configParser.get("limits","commands").split("\n"))
+exclude_comms = tuple(configParser.get("limits","commands").split(","))
 
 def send_email(name, account, hostname, date, command, pid, mem, cpu):
   mail_from = configParser.get("mail", "from")
@@ -75,35 +76,38 @@ def send_email(name, account, hostname, date, command, pid, mem, cpu):
   s.sendmail(mail_from, mail_to, mime_message.as_string())
   s.quit()
 
+def log_proc(l_proc,action):
+  pid,uid,cpu,mem,command  = tuple(l_proc)
+  account   = pwd.getpwuid(uid).pw_name
+  hostname  = socket.gethostname()
+  date      = time.strftime('%Y-%m-%d %H:%M')
+  log_fh    = open(logfile, 'a')
+  if action == "ignore":
+    log_fh.write("%s - Ignoring pid: %s. user: %s, host: %s, cpu: %s, mem: %s, comm: %s\n" % (date, pid, account, hostname, cpu, mem, command))
+  elif action == "term":
+    log_fh.write("%s - Sending SIGTERM to pid: %s. user: %s, host: %s, cpu: %s, mem: %s, comm: %s\n" % (date, pid, account, hostname, cpu, mem, command))
+  elif action == "kill":
+      log_fh.write("%s - Sending SIGKILL to pid: %s. user: %s, host: %s, cpu: %s, mem: %s, comm: %s\n" % (date, pid, account, hostname, cpu, mem, command))
+  log_fh.close()
 
-def kill_log(l_proc):
-  pid       = int(l_proc[0])
-  uid       = int(l_proc[1])
-  cpu       = l_proc[2]
-  mem       = l_proc[3]
-  command   = " ".join(l_proc[4:])
+def kill_proc(l_proc):
+  pid,uid,cpu,mem,command  = tuple(l_proc)
   u         = pwd.getpwuid(uid)
   name      = u.pw_gecos
 #  name      = "%s %s" % (u.pw_gecos.split(",")[1],u.pw_gecos.split(",")[0])
   account   = u.pw_name
   hostname  = socket.gethostname()
   date      = time.strftime('%Y-%m-%d %H:%M')
-
-  log_fh    = open(logfile, 'a')
-  if command.startswith(exclude_comms): 
-    log_fh.write("%s - Ignoring pid: %s. user: %s, host: %s, cpu: %s, mem: %s, comm: %s\n" % (date, pid, account, hostname, cpu, mem, command))
-  elif not command.startswith(exclude_comms):
-    log_fh.write("%s - Sending SIGTERM to pid: %s. user: %s, host: %s, cpu: %s, mem: %s, comm: %s\n" % (date, pid, account, hostname, cpu, mem, command))
-    send_email(name, account, hostname, date, command, pid, mem, cpu)
-    os.kill(int(pid), signal.SIGTERM) 
-    time.sleep(2)
-    try:
-      os.kill(int(pid), 0)
-      log_fh.write("%s - Sending SIGKILL to pid: %s. user: %s, host: %s, cpu: %s, mem: %s, comm: %s\n" % (date, pid, account, hostname, cpu, mem, command))
-      os.kill(int(pid), signal.SIGKILL)
-    except:
-      pass
-  log_fh.close()
+  log_proc(l_proc,"term")
+  send_email(name, account, hostname, date, command, pid, mem, cpu)
+  os.kill(int(pid), signal.SIGTERM) 
+  time.sleep(2)
+  try:
+    os.kill(int(pid), 0)
+    log_proc(l_proc,"kill")
+    os.kill(int(pid), signal.SIGKILL)
+  except:
+    pass
 
 
 def gen_procs():
@@ -117,12 +121,11 @@ def gen_procs():
     uid  = int(proc[1])
     cpu  = float(proc[2])
     mem  = float(proc[3])
-    comm = str(" ".join(proc[4:]))
-    if ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ) and comm.startswith(exclude_comms):
-      d_ignore[pid] = proc
-    elif ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ):
-      d_ps[pid] = proc
-  return d_ps, d_ignore
+    if ( uid >= user_uid_min and uid < user_uid_max ) and ( cpu >= max_cpu or mem >= max_mem ):
+      command = str(" ".join(proc[4:]))
+      del proc[5:]
+      d_ps[pid] = [pid,uid,cpu,mem,command]
+  return d_ps
 
 def write_history(proc_dict,file_path):
   hist_fh      = open(file_path, 'wb')
@@ -135,24 +138,44 @@ def read_history(file_path):
   hist_fh.close()
   return proc_dict
 
-def kill_procs(d_hist, d_curr):
+def run_procs(d_hist, d_curr):
+  for pid in d_curr.keys():
+    if d_curr[pid][4].startswith(exclude_comms):
+      pid_ignore = True
+    elif not d_curr[pid][4].startswith(exclude_comms):
+      pid_ignore = False 
+    if pid_ignore and pid not in d_hist.keys():
+      d_hist[pid] = d_curr[pid]
+      log_proc(d_curr[pid],"ignore")
+    elif pid_ignore and pid in d_hist.keys():
+      continue
+    elif not pid_ignore and pid not in d_hist.keys():
+      d_hist[pid] = d_curr[pid]
+    elif not pid_ignore and pid in d_hist.keys():
+      kill_proc(d_curr[pid])
   for pid in d_hist.keys():
-    if pid in d_curr.keys() and d_hist[pid][1] == d_curr[pid][1]:
-      kill_log(d_curr[pid])
+    if pid not in d_curr.keys():
+      del d_hist[pid]
+  write_history(d_hist,histfile)
+
+
+#    if pid in d_curr.keys() and d_hist[pid][1] == d_curr[pid][1]:
+#      kill_log(d_curr[pid])
  
 if not os.path.exists(run_dir):
   os.makedirs(run_dir)
 
 if os.path.isfile(histfile):
   firstrun = False
-  hist_dict = read_history(histfile)
 else:
   firstrun = True
 
-process_dict,ignore_dict = gen_procs()
-write_history(process_dict,histfile)
-write_history(ignore_dict,ignorefile)
+process_dict = gen_procs()
 
+if firstrun:
+  write_history(process_dict,histfile)
+  exit(0)
 if not firstrun:
-  kill_procs(hist_dict, process_dict)
+  hist_dict = read_history(histfile)
+  run_procs(hist_dict, process_dict)
  
