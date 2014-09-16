@@ -47,7 +47,6 @@ max_mem         = configParser.getfloat("limits", "max_mem") # memory limits
 run_dir     = configParser.get("paths", "run_dir")
 log_dir     = configParser.get("paths", "log_dir")
 histfile    = run_dir+"/proc_watch.history"     # track multiple violations
-ignorefile  = run_dir+"/proc_watch.ignore"      # track ignored programs
 logfile     = log_dir+"/proc_watch.log"         # actions logged to this file
 
 exclude_comms = tuple(configParser.get("limits","commands").split(","))
@@ -98,10 +97,14 @@ def kill_proc(l_proc):
   account   = u.pw_name
   hostname  = socket.gethostname()
   date      = time.strftime('%Y-%m-%d %H:%M')
-  log_proc(l_proc,"term")
-  send_email(name, account, hostname, date, command, pid, mem, cpu)
-  os.kill(int(pid), signal.SIGTERM) 
-  time.sleep(2)
+  try:
+    os.kill(int(pid), 0)
+    log_proc(l_proc,"term")
+    os.kill(int(pid), signal.SIGTERM) 
+    send_email(name, account, hostname, date, command, pid, mem, cpu)
+    time.sleep(2)
+  except:
+    pass
   try:
     os.kill(int(pid), 0)
     log_proc(l_proc,"kill")
@@ -140,28 +143,26 @@ def read_history(file_path):
 
 def run_procs(d_hist, d_curr):
   for pid in d_curr.keys():
-    if d_curr[pid][4].startswith(exclude_comms):
+    command = d_curr[pid][4]
+    if command.startswith(exclude_comms):
       pid_ignore = True
-    elif not d_curr[pid][4].startswith(exclude_comms):
+    else:
       pid_ignore = False 
     if pid_ignore and pid not in d_hist.keys():
       d_hist[pid] = d_curr[pid]
       log_proc(d_curr[pid],"ignore")
     elif pid_ignore and pid in d_hist.keys():
-      continue
+      d_hist[pid] = d_curr[pid]
     elif not pid_ignore and pid not in d_hist.keys():
       d_hist[pid] = d_curr[pid]
     elif not pid_ignore and pid in d_hist.keys():
       kill_proc(d_curr[pid])
+      d_hist[pid] = d_curr[pid]
   for pid in d_hist.keys():
     if pid not in d_curr.keys():
       del d_hist[pid]
   write_history(d_hist,histfile)
 
-
-#    if pid in d_curr.keys() and d_hist[pid][1] == d_curr[pid][1]:
-#      kill_log(d_curr[pid])
- 
 if not os.path.exists(run_dir):
   os.makedirs(run_dir)
 
