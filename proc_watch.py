@@ -30,8 +30,7 @@ from email.mime.text import MIMEText
 from string import Template
 
 # location of config file
-#config_file = "/usr/local/etc/proc_watch.ini"
-config_file = "./proc_watch.ini"
+config_file = "/usr/local/etc/proc_watch.ini"
 
 # read in the config file
 configParser = ConfigParser.RawConfigParser()
