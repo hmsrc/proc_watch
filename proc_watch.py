@@ -30,7 +30,10 @@ from email.mime.text import MIMEText
 from string import Template
 
 # location of config file
-config_file = "/usr/local/etc/proc_watch.ini"
+if os.path.isfile("proc_watch.ini"):
+  config_file = "proc_watch.ini"
+else:
+  config_file = "/usr/local/etc/proc_watch.ini"
 
 # read in the config file
 configParser = ConfigParser.RawConfigParser()
@@ -50,11 +53,12 @@ logfile     = log_dir+"/proc_watch.log"         # actions logged to this file
 
 exclude_comms = tuple(configParser.get("limits","commands").split(","))
 
-def send_email(name, account, hostname, date, command, pid, mem, cpu):
+def send_email(name, account, hostname, date, command, pid, mem, cpu, debug=False):
   mail_from = configParser.get("mail", "from")
   mail_reply_to = configParser.get("mail", "reply_to")
+  mail_cc_list = configParser.get("mail", "cc_list")
   mail_smtp = configParser.get("mail", "smtp_server")
-  mail_to   = account
+  mail_to   = ','.join([account] + [mail_cc_list])
 
   config_msg  = configParser.get("mail", "message")
   config_sub  = configParser.get("mail", "subject")
@@ -69,7 +73,8 @@ def send_email(name, account, hostname, date, command, pid, mem, cpu):
   mime_message['From']       = mail_from
   mime_message['To']         = mail_to
   mime_message['Reply-to']   = mail_reply_to
-
+  if debug:
+    sys.stdout.write("Sending email to %s\n" % mail_to)
   s = smtplib.SMTP(mail_smtp)
   s.sendmail(mail_from, mail_to, mime_message.as_string())
   s.quit()
@@ -89,6 +94,8 @@ def log_proc(l_proc,action):
   log_fh.close()
 
 def kill_proc(l_proc):
+  """kill_proc(l_proc)
+  Attempts to kill a process and send email to the process owner"""
   pid,uid,cpu,mem,command  = tuple(l_proc)
   u         = pwd.getpwuid(uid)
   name      = u.pw_gecos
@@ -111,12 +118,38 @@ def kill_proc(l_proc):
   except:
     pass
 
+def fake_kill_proc(l_proc):
+  """Function to test email, will not actually terminate identified process
+  Not called by script normally."""
+  pid,uid,cpu,mem,command  = tuple(l_proc)
+  u         = pwd.getpwuid(uid)
+  name      = u.pw_gecos
+  account   = u.pw_name
+  hostname  = socket.gethostname()
+  date      = time.strftime('%Y-%m-%d %H:%M')
+  print (name, account, hostname, date, command, pid, mem, cpu)
+  send_email(name, account, hostname, date, command, pid, mem, cpu, debug=True)
+  time.sleep(2)
 
-def gen_procs():
-  d_ps,d_ignore = {}, {}
+def ps_list():
+  """Return a list of all processes output by ps_cmd."""
   p = subprocess.Popen(ps_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   psout, pserr = p.communicate()
-  ps_lines   = [ line for line in psout.split('\n') if line ]
+  return [ line for line in psout.split('\n') if line ]  
+
+def split_proc(ps_line):
+  proc = ps_line.split()
+  pid  = int(proc[0])
+  uid  = int(proc[1])
+  cpu  = float(proc[2])
+  mem  = float(proc[3])
+  command=str(" ".join(proc[4:]))
+  return [pid,uid,cpu,mem,command]
+
+def gen_procs():
+  """Return a list of processes withing specified UID range that exceed CPU or Memory limits"""
+  d_ps,d_ignore = {}, {}
+  ps_lines   = ps_list()
   for line in ps_lines[1:]:
     proc = line.split() 
     pid  = int(proc[0])
@@ -141,6 +174,8 @@ def read_history(file_path):
   return proc_dict
 
 def run_procs(d_hist, d_curr):
+  """Given a dictionary of historical and current processes, check to see which processes
+  still exist and terminate those without exemptions specified in the ini file."""
   for pid in d_curr.keys():
     command = d_curr[pid][4]
     if command.startswith(exclude_comms):
@@ -162,20 +197,21 @@ def run_procs(d_hist, d_curr):
       del d_hist[pid]
   write_history(d_hist,histfile)
 
-if not os.path.exists(run_dir):
-  os.makedirs(run_dir)
-
-if os.path.isfile(histfile):
-  firstrun = False
-else:
-  firstrun = True
-
-process_dict = gen_procs()
-
-if firstrun:
-  write_history(process_dict,histfile)
-  exit(0)
-if not firstrun:
-  hist_dict = read_history(histfile)
-  run_procs(hist_dict, process_dict)
+if __name__=='__main__':
+  if not os.path.exists(run_dir):
+    os.makedirs(run_dir)
+  
+  if os.path.isfile(histfile):
+    firstrun = False
+  else:
+    firstrun = True
+  
+  process_dict = gen_procs()
+  
+  if firstrun:
+    write_history(process_dict,histfile)
+    exit(0)
+  if not firstrun:
+    hist_dict = read_history(histfile)
+    run_procs(hist_dict, process_dict)
  
